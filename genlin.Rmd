@@ -4,11 +4,454 @@ editor_options:
     wrap: 72
 ---
 
-```{r}
-df <- read.csv("~/Desktop/finlitCausal/data/fin_lit_data_scale=False.csv")
+# Generalized Lin's Estimator Analysis
 
-```
+## Financial Literacy Course Impact on Financial Health
+
+Reference: Used Ethan Allavarpu's starter skeleton code from HW2
+solutions and generalized the code to allow cross-fitting on any
+covariates, treatment, and outcome.
+
+# FinLit (HS)
+
+# Unscaled Data
 
 ```{r}
+library(randomForest)
+df <- read.csv("~/Desktop/finlitCausal/data/fin_lit_data_treat=hs_scale=False.csv")
 head(df, 5)
 ```
+
+```{r}
+average_FIN_HEALTH_Z_1 <- mean(df$FIN_HEALTH[df$Z == 1], na.rm = TRUE)
+average_FIN_HEALTH_Z_0 <- mean(df$FIN_HEALTH[df$Z == 0], na.rm = TRUE)
+
+print(average_FIN_HEALTH_Z_1)
+print(average_FIN_HEALTH_Z_0)
+```
+
+```{r}
+set.seed(2)
+
+get_tau_hat_v_hat_crossfitted <- function(df, 
+                                          covariates = c('EDUCATION_LEVEL'), 
+                                          treatment = 'Z', 
+                                          outcome = 'FIN_HEALTH'){
+  df[covariates] <- lapply(df[covariates], as.factor)
+  
+  # Extract outcome and treatment variables
+  Y <- df[[outcome]]
+  Z <- df[[treatment]]
+  n <- length(Z)
+  
+  # Create a formula for covariates dynamically
+  cov_formula <- as.formula(paste("~", paste(covariates, collapse = " + ")))
+  
+  # Create model matrix
+  X <- model.matrix(cov_formula, data = df)[, -1]
+  
+  shuffled_indices <- sample(seq_len(n))
+  split <- floor(n / 2)
+  I_1_indices <- shuffled_indices[seq_len(split)]
+  I_2_indices <- shuffled_indices[seq(from = split + 1, to = n, by = 1)]
+  
+  I_groups <- list(
+    "I1" = list(
+      "Y" = Y[I_1_indices],
+      "Z" = Z[I_1_indices],
+      "X" = X[I_1_indices, ],
+      "indices" = I_1_indices
+    ),
+    "I2" = list(
+      "Y" = Y[I_2_indices],
+      "Z" = Z[I_2_indices],
+      "X" = X[I_2_indices, ],
+      "indices" = I_2_indices
+    )
+  )
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    Y_subset <- I_i$Y
+    Z_subset <- I_i$Z
+    X_subset <- I_i$X
+    X_subset_centered <- scale(X_subset, center = TRUE, scale = FALSE)
+    n_i1 <- sum(Z_subset == 1)
+    I_groups[[i]][["n1"]] <- n_i1
+    n_i0 <- sum(Z_subset == 0)
+    I_groups[[i]][["n0"]] <- n_i0
+    I_groups[[i]][["n"]] <- n_i1 + n_i0
+    df_i <- cbind(Y_subset, data.frame(X_subset_centered))
+    mu_hat_1_rf <- randomForest(Y_subset ~ ., data = df_i[Z_subset == 1, ])
+    
+    # Center full data frame based on training centering process
+    X_full_centered <- X - matrix(
+      rep(attr(X_subset_centered, "scaled:center"), nrow(X)),
+      ncol = ncol(X),
+      byrow = TRUE
+    )
+    df_full <- cbind(Y, data.frame(X_full_centered))
+    I_groups[[i]][["mu_tilde_1"]] <- predict(mu_hat_1_rf, newdata = df_full) + (
+      (1 / n_i1) * sum(
+        Y_subset[Z_subset == 1] -
+        predict(mu_hat_1_rf, newdata = df_i[Z_subset == 1, ])
+      )
+    )
+    mu_hat_0_rf <- randomForest(Y_subset ~ ., data = df_i[Z_subset == 0, ])
+    I_groups[[i]][["mu_tilde_0"]] <- predict(mu_hat_0_rf, newdata = df_full) + (
+      (1 / n_i0) * sum(
+        Y_subset[Z_subset == 0] -
+        predict(mu_hat_0_rf, newdata = df_i[Z_subset == 0, ])
+      )
+    )
+  }
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    indices <- I_i$indices
+    other <- names(I_groups)[names(I_groups) != i]
+    I_other <- I_groups[[other]]
+    I_groups[[i]][["tau_hat"]] <- (
+      (1 / I_i$n) * (
+        sum(I_i$Y[I_i$Z == 1]) + sum(I_other$mu_tilde_1[indices][I_i$Z == 0])
+      ) -
+      (1 / I_i$n) * (
+        sum(I_i$Y[I_i$Z == 0]) + sum(I_other$mu_tilde_0[indices][I_i$Z == 1])
+      )
+    )
+  }
+  
+  tau_hat <- (
+    (I_groups$I1$n / n) * I_groups$I1$tau_hat +
+    (I_groups$I2$n / n) * I_groups$I2$tau_hat
+  )
+  
+  V_hat_I <- list()
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    other <- names(I_groups)[names(I_groups) != i]
+    I_other <- I_groups[[other]]
+    
+    sigma_hat_I_2_1 <- (1 / (I_i$n1 - 1)) * sum(
+      (I_i$Y[I_i$Z == 1] - I_other$mu_tilde_1[I_i$indices][I_i$Z == 1])^2
+    )
+    sigma_hat_I_2_0 <- (1 / (I_i$n0 - 1)) * sum(
+      (I_i$Y[I_i$Z == 0] - I_other$mu_tilde_0[I_i$indices][I_i$Z == 0])^2
+    )
+    sigma_hat_I_2_tau <- (1 / (I_i$n - 1)) * sum(
+      (
+        I_other$mu_tilde_1[I_i$indices] - I_other$mu_tilde_0[I_i$indices] -
+        mean(I_other$mu_tilde_1[I_i$indices]) + mean(I_other$mu_tilde_0[I_i$indices])
+      )^2
+    )
+    
+    I_groups[[i]][["V_hat"]] <- (
+      (1 / I_i$n1) * sigma_hat_I_2_1 +
+      (1 / I_i$n0) * sigma_hat_I_2_0 +
+      (1 / I_i$n) * sigma_hat_I_2_tau
+    )
+  }
+  
+  V_hat <- (
+    (I_groups$I1$n / n)^2 * I_groups$I1$V_hat +
+    (I_groups$I2$n / n)^2 * I_groups$I2$V_hat
+  )
+  
+  c("tau_hat" = tau_hat, "V_hat" = V_hat)
+}
+
+
+
+```
+
+```{r}
+COVARIATES <- c(
+  'RACE_ETHNICITY', 'EDUCATION_LEVEL', 'HIGHEST_EDUCATION_OF_RAISERS',
+  'NUM_DEPENDENT_CHILDREN', 'BINARIZED_GENDER', 'AGE', 'LAYOFF_PANDEMIC',
+  'EXPECT_INHERIT_10K_PLUS', 'STATE'
+)
+results = get_tau_hat_v_hat_crossfitted(df,
+                              covariates= COVARIATES,
+                              treatment = 'Z',
+                              outcome = 'FIN_HEALTH')
+
+tau_hat <- results['tau_hat']
+V_hat <- results['V_hat']
+
+# Z-score for 95% confidence interval
+Z <- qnorm(0.975)
+
+# Calculate margin of error
+margin_of_error <- Z * sqrt(V_hat)
+
+# Calculate confidence interval
+confidence_interval <- c(tau_hat - margin_of_error, tau_hat + margin_of_error)
+
+cat("95% CI:", round(confidence_interval[1], 4), "-", round(confidence_interval[2], 4))
+```
+
+# Scaled Data
+
+```{r}
+df_scaled = read.csv('~/Desktop/finlitCausal/data/fin_lit_data_treat=hs_scale=True.csv')
+head(df_scaled, 5)
+```
+
+```{r}
+average_FIN_HEALTH_Z_1 <- mean(df_scaled$FIN_HEALTH[df$Z == 1], na.rm = TRUE)
+average_FIN_HEALTH_Z_0 <- mean(df_scaled$FIN_HEALTH[df$Z == 0], na.rm = TRUE)
+
+print(average_FIN_HEALTH_Z_1)
+print(average_FIN_HEALTH_Z_0)
+```
+
+```{r}
+
+COVARIATES <- c(
+  'RACE_ETHNICITY', 'EDUCATION_LEVEL', 'HIGHEST_EDUCATION_OF_RAISERS',
+  'NUM_DEPENDENT_CHILDREN', 'BINARIZED_GENDER', 'AGE', 'LAYOFF_PANDEMIC',
+  'EXPECT_INHERIT_10K_PLUS', 'STATE'
+)
+results = get_tau_hat_v_hat_crossfitted(df_scaled,
+                              covariates= COVARIATES,
+                              treatment = 'Z',
+                              outcome = 'FIN_HEALTH')
+
+tau_hat <- results['tau_hat']
+V_hat <- results['V_hat']
+
+# Z-score for 95% confidence interval
+Z <- qnorm(0.975)
+
+# Calculate margin of error
+margin_of_error <- Z * sqrt(V_hat)
+
+# Calculate confidence interval
+confidence_interval <- c(tau_hat - margin_of_error, tau_hat + margin_of_error)
+
+cat("95% CI:", round(confidence_interval[1], 4), "-", round(confidence_interval[2], 4))
+```
+
+# Repeat for Financial Literacy Treatment (All)
+
+# 
+
+```{r}
+library(randomForest)
+df <- read.csv("~/Desktop/finlitCausal/data/fin_lit_data_treat=all_scale=False.csv")
+head(df, 5)
+```
+
+```{r}
+average_FIN_HEALTH_Z_1 <- mean(df$FIN_HEALTH[df$Z == 1], na.rm = TRUE)
+average_FIN_HEALTH_Z_0 <- mean(df$FIN_HEALTH[df$Z == 0], na.rm = TRUE)
+
+print(average_FIN_HEALTH_Z_1)
+print(average_FIN_HEALTH_Z_0)
+```
+
+```{r}
+set.seed(2)
+
+get_tau_hat_v_hat_crossfitted <- function(df, 
+                                          covariates = c('EDUCATION_LEVEL'), 
+                                          treatment = 'Z', 
+                                          outcome = 'FIN_HEALTH'){
+  df[covariates] <- lapply(df[covariates], as.factor)
+  
+  # Extract outcome and treatment variables
+  Y <- df[[outcome]]
+  Z <- df[[treatment]]
+  n <- length(Z)
+  
+  # Create a formula for covariates dynamically
+  cov_formula <- as.formula(paste("~", paste(covariates, collapse = " + ")))
+  
+  # Create model matrix
+  X <- model.matrix(cov_formula, data = df)[, -1]
+  
+  shuffled_indices <- sample(seq_len(n))
+  split <- floor(n / 2)
+  I_1_indices <- shuffled_indices[seq_len(split)]
+  I_2_indices <- shuffled_indices[seq(from = split + 1, to = n, by = 1)]
+  
+  I_groups <- list(
+    "I1" = list(
+      "Y" = Y[I_1_indices],
+      "Z" = Z[I_1_indices],
+      "X" = X[I_1_indices, ],
+      "indices" = I_1_indices
+    ),
+    "I2" = list(
+      "Y" = Y[I_2_indices],
+      "Z" = Z[I_2_indices],
+      "X" = X[I_2_indices, ],
+      "indices" = I_2_indices
+    )
+  )
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    Y_subset <- I_i$Y
+    Z_subset <- I_i$Z
+    X_subset <- I_i$X
+    X_subset_centered <- scale(X_subset, center = TRUE, scale = FALSE)
+    n_i1 <- sum(Z_subset == 1)
+    I_groups[[i]][["n1"]] <- n_i1
+    n_i0 <- sum(Z_subset == 0)
+    I_groups[[i]][["n0"]] <- n_i0
+    I_groups[[i]][["n"]] <- n_i1 + n_i0
+    df_i <- cbind(Y_subset, data.frame(X_subset_centered))
+    mu_hat_1_rf <- randomForest(Y_subset ~ ., data = df_i[Z_subset == 1, ])
+    
+    # Center full data frame based on training centering process
+    X_full_centered <- X - matrix(
+      rep(attr(X_subset_centered, "scaled:center"), nrow(X)),
+      ncol = ncol(X),
+      byrow = TRUE
+    )
+    df_full <- cbind(Y, data.frame(X_full_centered))
+    I_groups[[i]][["mu_tilde_1"]] <- predict(mu_hat_1_rf, newdata = df_full) + (
+      (1 / n_i1) * sum(
+        Y_subset[Z_subset == 1] -
+        predict(mu_hat_1_rf, newdata = df_i[Z_subset == 1, ])
+      )
+    )
+    mu_hat_0_rf <- randomForest(Y_subset ~ ., data = df_i[Z_subset == 0, ])
+    I_groups[[i]][["mu_tilde_0"]] <- predict(mu_hat_0_rf, newdata = df_full) + (
+      (1 / n_i0) * sum(
+        Y_subset[Z_subset == 0] -
+        predict(mu_hat_0_rf, newdata = df_i[Z_subset == 0, ])
+      )
+    )
+  }
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    indices <- I_i$indices
+    other <- names(I_groups)[names(I_groups) != i]
+    I_other <- I_groups[[other]]
+    I_groups[[i]][["tau_hat"]] <- (
+      (1 / I_i$n) * (
+        sum(I_i$Y[I_i$Z == 1]) + sum(I_other$mu_tilde_1[indices][I_i$Z == 0])
+      ) -
+      (1 / I_i$n) * (
+        sum(I_i$Y[I_i$Z == 0]) + sum(I_other$mu_tilde_0[indices][I_i$Z == 1])
+      )
+    )
+  }
+  
+  tau_hat <- (
+    (I_groups$I1$n / n) * I_groups$I1$tau_hat +
+    (I_groups$I2$n / n) * I_groups$I2$tau_hat
+  )
+  
+  V_hat_I <- list()
+  
+  for (i in names(I_groups)) {
+    I_i <- I_groups[[i]]
+    other <- names(I_groups)[names(I_groups) != i]
+    I_other <- I_groups[[other]]
+    
+    sigma_hat_I_2_1 <- (1 / (I_i$n1 - 1)) * sum(
+      (I_i$Y[I_i$Z == 1] - I_other$mu_tilde_1[I_i$indices][I_i$Z == 1])^2
+    )
+    sigma_hat_I_2_0 <- (1 / (I_i$n0 - 1)) * sum(
+      (I_i$Y[I_i$Z == 0] - I_other$mu_tilde_0[I_i$indices][I_i$Z == 0])^2
+    )
+    sigma_hat_I_2_tau <- (1 / (I_i$n - 1)) * sum(
+      (
+        I_other$mu_tilde_1[I_i$indices] - I_other$mu_tilde_0[I_i$indices] -
+        mean(I_other$mu_tilde_1[I_i$indices]) + mean(I_other$mu_tilde_0[I_i$indices])
+      )^2
+    )
+    
+    I_groups[[i]][["V_hat"]] <- (
+      (1 / I_i$n1) * sigma_hat_I_2_1 +
+      (1 / I_i$n0) * sigma_hat_I_2_0 +
+      (1 / I_i$n) * sigma_hat_I_2_tau
+    )
+  }
+  
+  V_hat <- (
+    (I_groups$I1$n / n)^2 * I_groups$I1$V_hat +
+    (I_groups$I2$n / n)^2 * I_groups$I2$V_hat
+  )
+  
+  c("tau_hat" = tau_hat, "V_hat" = V_hat)
+}
+
+
+
+```
+
+```{r}
+COVARIATES <- c(
+  'RACE_ETHNICITY', 'EDUCATION_LEVEL', 'HIGHEST_EDUCATION_OF_RAISERS',
+  'NUM_DEPENDENT_CHILDREN', 'BINARIZED_GENDER', 'AGE', 'LAYOFF_PANDEMIC',
+  'EXPECT_INHERIT_10K_PLUS', 'STATE'
+)
+results = get_tau_hat_v_hat_crossfitted(df,
+                              covariates= COVARIATES,
+                              treatment = 'Z',
+                              outcome = 'FIN_HEALTH')
+
+tau_hat <- results['tau_hat']
+V_hat <- results['V_hat']
+
+# Z-score for 95% confidence interval
+Z <- qnorm(0.975)
+
+# Calculate margin of error
+margin_of_error <- Z * sqrt(V_hat)
+
+# Calculate confidence interval
+confidence_interval <- c(tau_hat - margin_of_error, tau_hat + margin_of_error)
+
+cat("95% CI:", round(confidence_interval[1], 4), "-", round(confidence_interval[2], 4))
+```
+
+# Scaled Data
+
+```{r}
+df_scaled = read.csv('~/Desktop/finlitCausal/data/fin_lit_data_treat=all_scale=True.csv')
+head(df_scaled, 5)
+```
+
+```{r}
+average_FIN_HEALTH_Z_1 <- mean(df_scaled$FIN_HEALTH[df$Z == 1], na.rm = TRUE)
+average_FIN_HEALTH_Z_0 <- mean(df_scaled$FIN_HEALTH[df$Z == 0], na.rm = TRUE)
+
+print(average_FIN_HEALTH_Z_1)
+print(average_FIN_HEALTH_Z_0)
+```
+
+```{r}
+
+COVARIATES <- c(
+  'RACE_ETHNICITY', 'EDUCATION_LEVEL', 'HIGHEST_EDUCATION_OF_RAISERS',
+  'NUM_DEPENDENT_CHILDREN', 'BINARIZED_GENDER', 'AGE', 'LAYOFF_PANDEMIC',
+  'EXPECT_INHERIT_10K_PLUS', 'STATE'
+)
+results = get_tau_hat_v_hat_crossfitted(df_scaled,
+                              covariates= COVARIATES,
+                              treatment = 'Z',
+                              outcome = 'FIN_HEALTH')
+
+tau_hat <- results['tau_hat']
+V_hat <- results['V_hat']
+
+# Z-score for 95% confidence interval
+Z <- qnorm(0.975)
+
+# Calculate margin of error
+margin_of_error <- Z * sqrt(V_hat)
+
+# Calculate confidence interval
+confidence_interval <- c(tau_hat - margin_of_error, tau_hat + margin_of_error)
+
+cat("95% CI:", round(confidence_interval[1], 4), "-", round(confidence_interval[2], 4))
+```
+
+# 
