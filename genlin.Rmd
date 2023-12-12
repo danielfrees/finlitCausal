@@ -1,0 +1,14 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+df <- read.csv("~/Desktop/finlitCausal/data/fin_lit_data_scale=False.csv")
+
+```
+
+```{r}
+head(df, 5)
+```

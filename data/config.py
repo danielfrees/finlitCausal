@@ -119,7 +119,7 @@ COLUMN_MAP = {
     'M1_1': 'D2D_FINANCIAL_SKILL',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
     'M1_2': 'Math Proficiency',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
     'M4': 'FINANCIAL_KNOWLEDGE_ASSESS',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
-    'M20': 'Financial Education Participation',  # Values: 1-Yes (did not participate), 2-Yes (participated), 3-No, 98-Don’t know, 99-Prefer not to say
+    'M20': 'FIN_ED_ALL',  # Values: 1-Yes (did not participate), 2-Yes (participated), 3-No, 98-Don’t know, 99-Prefer not to say
     'M21_1': 'FIN_ED_HS',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
     'M21_2': 'Received Financial Education in College',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
     'M21_3': 'Received Financial Education from Employer',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
