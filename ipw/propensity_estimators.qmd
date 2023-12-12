@@ -1,0 +1,148 @@
+---
+title: "AIPW and IPW"
+format: pdf
+editor: visual
+---
+
+# Load in required libraries
+
+```{r, echo=FALSE}
+library(AIPW)
+library(SuperLearner)
+library(broom)
+library(PSweight)
+```
+
+
+# Load in dataset
+
+```{r}
+df_hs_scaled <- read.csv("fin_lit_data_treat=hs_scale=True.csv")
+df_hs_unscaled <- read.csv("fin_lit_data_treat=hs_scale=False.csv")
+df_all_scaled <- read.csv("fin_lit_data_treat=all_scale=True.csv")
+df_all_unscaled <- read.csv("fin_lit_data_treat=all_scale=False.csv")
+```
+
+# Config - set up treatment, outcome, numerical and categorical covariate columns
+
+```{r}
+Z <- "Z"
+Y <- "FIN_HEALTH"
+
+categorical_Xs <- c("RACE_ETHNICITY", "BINARIZED_GENDER", "LAYOFF_PANDEMIC", "STATE", "EXPECT_INHERIT_10K_PLUS")
+# Notes: Layoff pandemic has values of 4.5 in it - should this be changed?
+# Same with EXPECT_INHERIT_10K_PLUS - also, not sure if we should treat as categorical or numerical
+
+numerical_Xs <- c("EDUCATION_LEVEL", "HIGHEST_EDUCATION_OF_RAISERS", "NUM_DEPENDENT_CHILDREN", "AGE")
+# I put age in numerical, because the buckets are ordered
+
+
+```
+
+# Function to calculate IPW - Horvitz-Thompson Estimator
+
+```{r}
+calculate_ipw <- function(df, Z, numerical_Xs, categorical_Xs, Y, conf_level = 0.95) {
+  # Create formula for logistic regression model using string ops
+  formula_ps <- as.formula(paste(Z, "~", 
+                                 paste(c(numerical_Xs, 
+                                         paste("factor(", categorical_Xs, ")", collapse = "+")), 
+                                       collapse = "+")))
+
+  # LogReg model to estimate propensity scores
+  log_reg_propensity <- glm(formula_ps, data = df, family = binomial(link = "logit"))
+
+  # Calculate propensity scores - automatically uses dataframe, don't need to pass as an argument
+  df$propensity_score <- predict(log_reg_propensity, type = "response")
+
+  # Calculate IPW weights
+  df$ipw_weight <- ifelse(df[[Z]] == 1, 1 / df$propensity_score, 1 / (1 - df$propensity_score))
+
+  # Fit weighted linear regression model for the outcome
+  # formula_outcome <- as.formula(paste(Y, "~", paste(c(Z, numerical_Xs, 
+  #                                                         paste("factor(", categorical_Xs, ")", collapse = "+")), 
+  #                                                         collapse = "+")))
+  
+  formula_outcome <- as.formula(paste(Y, "~", Z))
+                                                            
+  model_outcome <- lm(formula_outcome, data = df, weights = df$ipw_weight)
+  ci <- confint(model_outcome, level = conf_level)[Z, ]
+
+  # Extract and return the estimated treatment effect
+  ipw_estimate <- coef(model_outcome)[Z]
+  
+  return(list(estimate = ipw_estimate, ci = ci))
+}
+```
+
+
+```{r}
+calculate_ipw(df_hs_scaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_ipw(df_hs_unscaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_ipw(df_all_scaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_ipw(df_all_unscaled, Z, numerical_Xs, categorical_Xs, Y)
+```
+
+# Hajek Estimator
+
+```{r}
+# Use the PSWeight library, which implements the Hajek estimator weighting by default
+
+calculate_hajek_estimator <- function(df, Z, numerical_Xs, categorical_Xs, Y, num_bootstraps = 50) {
+  # Create a formula for calculating the propensity score
+  formula_ps <- as.formula(paste(Z, "~", 
+                                 paste(c(numerical_Xs, 
+                                         paste("factor(", categorical_Xs, ")", collapse = "+")), 
+                                       collapse = "+")))
+  
+  ato1 <- PSweight(ps.formula = formula_ps, yname = Y, zname = Z, data = df, weight = "IPW", bootstrap = TRUE, 
+                 R = num_bootstraps)
+  summary(ato1)
+}
+```
+
+```{r}
+calculate_hajek_estimator(df_hs_scaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_hajek_estimator(df_hs_unscaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_hajek_estimator(df_all_scaled, Z, numerical_Xs, categorical_Xs, Y)
+calculate_hajek_estimator(df_all_unscaled, Z, numerical_Xs, categorical_Xs, Y)
+
+```
+
+# Use the AIPW library in R to calculate AIPW efficiently
+
+```{r}
+calculate_aipw <- function(df, Z, numerical_Xs, categorical_Xs, Y, k_split) {
+  # Specify libraries to use for fitting
+  sl.lib <- c("SL.mean","SL.glm")
+  
+  # Make categorical covariates factors, concatenate
+  df[, categorical_Xs] <- lapply(df[, categorical_Xs], factor)
+  covariate_subset <- c(numerical_Xs, categorical_Xs)
+  
+  # Construct AIPW object
+  AIPW_learner <- AIPW$new(Y = df[[Y]], 
+                           A = df[[Z]],
+                           W = subset(df, select = covariate_subset), 
+                           Q.SL.library = sl.lib,
+                           g.SL.library = sl.lib, 
+                           k_split = 10,
+                           verbose = TRUE
+                           )
+  
+  AIPW_learner$fit()
+  AIPW_learner$summary(g.bound = 0.025)
+}
+
+```
+
+```{r}
+calculate_aipw(df_hs_scaled, Z, numerical_Xs, categorical_Xs, Y, 10)
+calculate_aipw(df_hs_unscaled, Z, numerical_Xs, categorical_Xs, Y, 10)
+calculate_aipw(df_all_scaled, Z, numerical_Xs, categorical_Xs, Y, 10)
+calculate_aipw(df_all_unscaled, Z, numerical_Xs, categorical_Xs, Y, 10)
+```
+
+
+
+
