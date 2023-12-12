@@ -171,7 +171,7 @@ def visualize_data(df: pd.DataFrame):
     num_rows = math.ceil(num_covariates / num_cols)
 
     # Create the first figure for covariates
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(35, 35))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, 15))
     fig.subplots_adjust(hspace=0.5)
 
     # Visualize covariates with pie charts
