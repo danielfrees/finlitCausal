@@ -30,12 +30,9 @@ def load_data(dir = '2021-SxS-Data-and-Data-Info',
     df.columns = col_list
 
     df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
-    print(f"\n=======================================\n{df}\n")
     df.replace('', np.nan, inplace=True)
-    print(f"\n=======================================\n{df}\n")
     df.replace(np.nan, 4.5, inplace=True)
     df.fillna(4.5, inplace=True)
-    print(f"\n=======================================\n{df}\n")
     df = df.astype(int)
     df.replace(98, 4.5, inplace = True)
     df.replace(99, 4.5, inplace=True)
@@ -84,8 +81,6 @@ def get_finhealth_score(df,
         else:
             df[varname] = df[varname].map(mapping).fillna(4.5)
 
-    print(f"AFTER FINHEALTH NANS {df.map(lambda x: pd.isna(x)).sum().sum()}")
-
     if scale_vals:
         score_scale_map = {
             'SATISFACTION_WITH_FINANCIAL_CONDITION': lambda x: x * 1,
@@ -109,8 +104,6 @@ def get_finhealth_score(df,
         for varname, mapping in score_scale_map.items():
             df[varname] = df[varname].apply(lambda x: mapping(x))
 
-        print(f"AFTER SCALE NANS {df.map(lambda x: pd.isna(x)).sum().sum()}")
-
 
     # Sum the scores for each row
     df['overall_financial_score'] = df[OUTCOME_VARS].sum(axis=1)
@@ -120,34 +113,49 @@ def get_finhealth_score(df,
 
 def clean_data(df: pd.DataFrame, 
                write_cols: bool = False, 
-               scale_vals: bool = False):
+               scale_vals: bool = False, 
+               treat_type: str = 'hs'):
     """ 
     Subset the data and perform some operations.
     """
-    
 
     if write_cols: 
         with open('columns.txt', 'wb') as file:
             file.write('\n'.join(df.columns).encode('utf-8'))
     
-    def binarize_treat(t):
+    def binarize_treat_hs(t):
         if int(t) == 2:
             return 0 
         elif int(t) == 1:
             return 1
         else:
-            print(f'Bad Treatment Value Encountered: {t}')
+            return 999     #not a treat or control
+
+    def binarize_treat_all(t):
+        if int(t) == 2:
+            return 1
+        elif int(t) == 1 or int(t) == 3:
+            return 0
+        else:
+            return 999     #not a treat or control
 
     # Use .loc to avoid SettingWithCopyWarning
-    df = df.loc[df['FIN_ED_HS'].isin([1,2]), :]
-    df['Z'] = df.loc[:, 'FIN_ED_HS'].map(binarize_treat)
+    
+    if treat_type == 'hs':
+        df = df[df['FIN_ED_HS'].isin([1, 2])]
+        df['Z'] = df.loc[:, 'FIN_ED_HS'].map(binarize_treat_hs)
+    elif treat_type == 'all':
+        df = df[df['FIN_ED_ALL'].isin([1, 2, 3])]
+        df['Z'] = df.loc[:, 'FIN_ED_ALL'].map(binarize_treat_all)
+    else:
+        print("treat_type must be 'hs' or 'all'")
     df['FIN_HEALTH'] = get_finhealth_score(df, scale_vals=scale_vals)
 
     all_cols = []
     all_cols.extend(OUTCOME_VARS)
     all_cols.extend(COVARIATES)
     all_cols.extend(TREATMENT_COLS)
-    all_cols.extend('Z')
+    all_cols.append('Z')
     all_cols.append('FIN_HEALTH')
     df = df.loc[:, all_cols]
     
@@ -163,7 +171,7 @@ def visualize_data(df: pd.DataFrame):
     num_rows = math.ceil(num_covariates / num_cols)
 
     # Create the first figure for covariates
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(35, 35))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, 15))
     fig.subplots_adjust(hspace=0.5)
 
     # Visualize covariates with pie charts
@@ -180,13 +188,26 @@ def visualize_data(df: pd.DataFrame):
 
     plt.show()
 
-    # Create the second figure for the treatment variable
+    
+
     plt.figure(figsize=(8, 8))
+
+    # Get unique values and their counts
+    unique_values = [1, 0]
+    counts = [df['Z'].value_counts()[val] for val in unique_values]
+
+    # Define colors for each unique value
+    colors = ['orange', 'blue']
+
+    # Create a color list based on the order of appearance of unique values
+    color_list = [colors[unique_values.index(val)] for val in unique_values]
 
     # Visualize the treatment variable with a pie chart
     ax2 = plt.gca()
-    df['Z'].value_counts().plot.pie(autopct='%1.1f%%', startangle=90, ax=ax2)
+    ax2.pie(counts, labels=unique_values, autopct='%1.1f%%', startangle=90, colors=color_list)
     ax2.set_title('Treatment Distribution')
+
+    plt.show()
 
     plt.show()
 

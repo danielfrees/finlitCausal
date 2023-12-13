@@ -2,7 +2,7 @@
 Define global config variables for use in finlit scripts and notebooks.
 """
 
-TREATMENT_COLS =  ['FIN_ED_HS']   #M20 overall can be a second option with maybe more power?
+TREATMENT_COLS =  ['FIN_ED_HS', 'FIN_ED_ALL']   #M20 overall can be a second option with maybe more power?
 
 OUTCOME_VARS = ['SATISFACTION_WITH_FINANCIAL_CONDITION', 
             'SPENDING_COMPARISON_TO_INCOME', 
@@ -27,7 +27,7 @@ COLUMN_MAP = {
     'A50A': 'BINARIZED_GENDER',  # 1 MAN, 2 WOMAN  
     'A3Ar_w': 'AGE',  # AGE IN YEARS (13-101, 999 FOR PREFER NOT TO SAY)   #---- Covariate 
     'A50B': 'GENDER/AGE NET',  # GENDER AND AGE COMBINATION 
-    'A4A_new_w': 'RACE_ETHNICITY',  # 1 WHITE, 2 BLACK, 3 HISPANIC, 4 ASIAN, 5 NATIVE HAWAIIAN/OTHER PACIFIC ISLANDER, 6 OTHER, 99 PREFER NOT TO SAY 
+    'A4A_new_w': 'RACE_ETHNICITY',  # WHite and non-white?? MAPPED FROM 1 WHITE, 2 BLACK, 3 HISPANIC, 4 ASIAN, 5 NATIVE HAWAIIAN/OTHER PACIFIC ISLANDER, 6 OTHER, 99 PREFER NOT TO SAY 
     'A4A': 'ETHNICITY_QUOTA',  # 1 WHITE NON-HISPANIC, 2 BLACK NON-HISPANIC, 3 HISPANIC (ALONE OR IN COMBINATION), 4 ASIAN/PACIFIC ISLANDER NON-HISPANIC, 5 OTHER NON-HISPANIC (AMERICAN INDIAN, OTHER, 2+ ETHNICITIES)
     'A51': 'IDENTIFY_HERITAGE_BLACK',  # Column for Q.A51
     'A52': 'IDENTIFY_HERITAGE_HISPANIC',  # Column for Q.A52
@@ -119,7 +119,7 @@ COLUMN_MAP = {
     'M1_1': 'D2D_FINANCIAL_SKILL',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
     'M1_2': 'Math Proficiency',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
     'M4': 'FINANCIAL_KNOWLEDGE_ASSESS',  # Values: 1-7, 98-Don’t know, 99-Prefer not to say
-    'M20': 'Financial Education Participation',  # Values: 1-Yes (did not participate), 2-Yes (participated), 3-No, 98-Don’t know, 99-Prefer not to say
+    'M20': 'FIN_ED_ALL',  # Values: 1-Yes (did not participate), 2-Yes (participated), 3-No, 98-Don’t know, 99-Prefer not to say
     'M21_1': 'FIN_ED_HS',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
     'M21_2': 'Received Financial Education in College',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
     'M21_3': 'Received Financial Education from Employer',  # Values: 1-Yes, 2-No, 98-Don’t know, 99-Prefer not to say
