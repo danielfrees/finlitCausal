@@ -188,12 +188,26 @@ def visualize_data(df: pd.DataFrame):
 
     plt.show()
 
+    
+
     plt.figure(figsize=(8, 8))
+
+    # Get unique values and their counts
+    unique_values = [1, 0]
+    counts = [df['Z'].value_counts()[val] for val in unique_values]
+
+    # Define colors for each unique value
+    colors = ['orange', 'blue']
+
+    # Create a color list based on the order of appearance of unique values
+    color_list = [colors[unique_values.index(val)] for val in unique_values]
 
     # Visualize the treatment variable with a pie chart
     ax2 = plt.gca()
-    df['Z'].value_counts().plot.pie(autopct='%1.1f%%', startangle=90, ax=ax2)
+    ax2.pie(counts, labels=unique_values, autopct='%1.1f%%', startangle=90, colors=color_list)
     ax2.set_title('Treatment Distribution')
+
+    plt.show()
 
     plt.show()
 
