@@ -1,0 +1,277 @@
+---
+title: "final_project"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Charles Shaviro
+
+# STATS 209
+
+# Do Mandatory Financial Literacy Classes Cause Better Financial Outcomes?
+
+
+First we import libraries and set our seed to 209.
+
+```{r}
+set.seed(209)
+library(tidyverse)
+library(magrittr)
+library(DOS2)
+library(optmatch)
+library(RItools)
+source("utility.R")
+```
+
+Summarize.match function from utility.R puts the results of a pair match
+in a nice form. Usage: summarize.match(dataset,pairmatch_output)
+
+```{r}
+summarize.match <- function(dat, ms, ps.name="prop", keep.mset=FALSE) {
+  adat <- dat
+  adat$mset <- ms
+  adat <- adat[!is.na(adat$mset),]
+  adat.treat <- adat[adat$Z==1, ]
+  adat.ctrl <- adat[adat$Z==0, ]
+  
+  adat.m <- merge(adat.treat, adat.ctrl, by="mset", suffixes=c(".1", ".0"))
+  
+  if(!keep.mset) {
+    adat.m <- adat.m[, -which(names(adat.m) %in% c("Z.1", "Z.0", "mset"))]
+  } else {
+    adat.m <- adat.m[, -which(names(adat.m) %in% c("Z.1", "Z.0"))]        
+  }
+  adat.m <- adat.m[, sort(names(adat.m), index.return=TRUE)$ix]
+  
+  p0.name <- paste0(ps.name,".", 0)
+  p1.name <- paste0(ps.name,".",1)
+  
+  adat.m.tmp.1 <- adat.m[, -which(names(adat.m) %in% c(p0.name, p1.name))]
+  adat.m.tmp.2 <- adat.m[, c(p0.name, p1.name)]
+  
+  adat.m <- cbind(adat.m.tmp.1, adat.m.tmp.2)
+  
+  return(adat.m)
+}
+
+help(dynarski)
+
+data(dynarski)
+
+dynarski <- dynarski[,-1]
+
+set.seed(209)
+```
+
+
+
+
+
+
+## Implementing 1:1 Matching 
+
+```{r}
+filename = "fin_lit_data_treat=all_scale=True.csv"
+df = read.csv(filename)
+print(colnames(df))
+```
+
+```{r}
+covariate_balance <- plot(xBalance(Z ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS, data=df))
+
+#ggsave("other_Treat=ALL_covariate_balance.png", covariate_balance, width = 10, height = 6, units = "in", dpi = 300)
+
+
+```
+
+
+```{r}
+ggplot(df,aes(x=EDUCATION_LEVEL,fill=factor(Z))) +
+  geom_density(alpha=0.5) +
+  theme_classic() +
+  xlab("Education Level") +
+  scale_fill_discrete(name = "Z (Fin Literacy Class in HS)")
+```
+
+
+
+```{r}
+# ggplot(dynarski,aes(x=factor(edm, levels=c(1,2,3,4),
+#     labels=c("<high school","high school", "some college","BA or higher")),
+#             fill=factor(zb),
+#             group=factor(zb),
+#             y=..prop..)) +
+#   geom_bar(position=position_dodge()) +
+#   theme_classic() +
+#   xlab("Mother's Education") +
+#   ylab("proportion") +
+#   scale_fill_discrete(name = "Z (Fin Literacy Class in HS)")
+
+```
+
+### We compute propensity scores from all of our covariates
+
+```{r}
+
+df$prop <- glm(Z ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS,
+family=binomial, data=df)$fitted.values
+
+print(length(df$prop))
+
+```
+
+### And we plot our propensity scores
+
+
+```{r}
+
+prop_score_plot <- ggplot(df,aes(x=prop,fill=factor(Z))) +
+geom_density(alpha=0.5) +
+theme_classic() +
+xlab("Propensity Score") +
+scale_fill_discrete(name = "Z (Fin. Literacy Class in HS)")
+
+#ggsave("Treat=ALL_0.1_prop_score_density.png", prop_score_plot, width = 10, height = 6, units = "in", dpi = 300)
+
+```
+
+## Matching
+
+We conduct multivariate matching on all variables, with the Mahalanobis distance (and no caliper),
+obtain a matched-pair set. Using the ‘xBalance’ function, plot the covariate balance before and after
+matching.
+
+
+```{r}
+options("optmatch_max_problem_size" = Inf)
+match.1 <- smahal(df$Z, df[,c("RACE_ETHNICITY", "HIGHEST_EDUCATION_OF_RAISERS", "BINARIZED_GENDER", "LAYOFF_PANDEMIC", "STATE", "EDUCATION_LEVEL","NUM_DEPENDENT_CHILDREN","AGE","EXPECT_INHERIT_10K_PLUS")])
+ms.1 <- pairmatch(match.1, data=df)
+plot(xBalance(Z ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS + prop -1, strata=list(unstrat=NULL, ms.1=~ms.1), data=df), ggplot=TRUE)
+
+```
+
+
+We see that our matching has significantly improved covariate imbalance.
+
+Let's see if it will improve further with caliper matching.
+
+
+```{r}
+
+match.2 <- addcaliper(match.1, z=df$Z, p=df$prop, caliper=1)
+ms.2 <- pairmatch(match.2, data=df)
+print(ms.2, grouped = TRUE)
+
+
+
+balance_plot <- plot(xBalance(Z ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS + prop -1, strata=list(unstrat=NULL, ms.2=~ms.2), data=df), ggplot=TRUE)
+
+# Save the plot to a PNG file
+#ggsave("Treat=ALL_UNscaled_imbalance_plot_0.05.png", balance_plot, width = 10, height = 6, units = "in", dpi = 300)
+
+
+```
+
+
+```{r}
+summary_2 <- summarize.match(df, ms.2)
+print(summary_2)
+
+pairs_avg_diff <- mean(abs(summary_2$prop.0 - summary_2$prop.1))
+
+pairs_max_diff <- max(abs(summary_2$prop.0 - summary_2$prop.1))
+
+sprintf("The average absolute difference in propensity scores is: %f",pairs_avg_diff)
+sprintf("The maximum absolute difference in propensity scores is: %f",pairs_max_diff)
+
+
+
+sprintf("Length of summary table: %f",(length(summary_2)) )
+ 
+test_stat <- mean((summary_2$FIN_HEALTH.1 - summary_2$FIN_HEALTH.0))
+print(test_stat)
+ 
+n <- length(summary_2$FIN_HEALTH.1)
+print(n)
+ 
+count <- 0
+
+for (i in 1:1000) {
+  zi_s <- rbinom(n, 1, p=0.5)
+  local_test_stat <- mean((2*zi_s - 1)*(summary_2$FIN_HEALTH.1-summary_2$FIN_HEALTH.0))
+  if (local_test_stat >= test_stat) {
+    count <- count + 1
+  }
+}
+
+print(count)
+pval <- count/1000.0
+
+sprintf("The P-Value is: %f",pval)
+
+
+
+```
+
+Now we compute a bias-corrected estimate of the average treatment effect on and
+estimate its variance.
+
+```{r}
+columns_0 = c("RACE_ETHNICITY.0", "HIGHEST_EDUCATION_OF_RAISERS.0", "BINARIZED_GENDER.0","LAYOFF_PANDEMIC.0", "STATE.0", "EDUCATION_LEVEL.0", "NUM_DEPENDENT_CHILDREN.0", "AGE.0", "EXPECT_INHERIT_10K_PLUS.0", "FIN_HEALTH.0", "FIN_HEALTH.1")
+columns_1 = c("RACE_ETHNICITY.1", "HIGHEST_EDUCATION_OF_RAISERS.1", "BINARIZED_GENDER.1", "LAYOFF_PANDEMIC.1", "STATE.1", "EDUCATION_LEVEL.1", "NUM_DEPENDENT_CHILDREN.1", "AGE.1", "EXPECT_INHERIT_10K_PLUS.1", "FIN_HEALTH.0", "FIN_HEALTH.1")
+
+controls <- summary_2[, columns_0]
+treats <- summary_2[, columns_1]
+
+
+columns_0 = c('incmiss.0', 'afqtpct.0', 'black.0', 'edm.0', 'edmissm.0', 
+                'faminc.0', 'female.0', 'hisp.0', 'y.0', 'y.1')
+columns_1 = c('incmiss.1', 'afqtpct.1', 'black.1', 'edm.1', 'edmissm.1', 
+              'faminc.1', 'female.1', 'hisp.1','y.0','y.1')
+
+
+colnames(controls) <- c("RACE_ETHNICITY", "HIGHEST_EDUCATION_OF_RAISERS", "BINARIZED_GENDER","LAYOFF_PANDEMIC", "STATE", "EDUCATION_LEVEL", "NUM_DEPENDENT_CHILDREN", "AGE", "EXPECT_INHERIT_10K_PLUS", "FIN_HEALTH.0", "FIN_HEALTH.1")
+colnames(treats) <- c("RACE_ETHNICITY", "HIGHEST_EDUCATION_OF_RAISERS", "BINARIZED_GENDER","LAYOFF_PANDEMIC", "STATE", "EDUCATION_LEVEL", "NUM_DEPENDENT_CHILDREN", "AGE", "EXPECT_INHERIT_10K_PLUS", "FIN_HEALTH.0", "FIN_HEALTH.1")
+
+
+mu_hat_1 = lm(FIN_HEALTH.1 ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS, data=treats)
+
+mu_hat_0 = lm(FIN_HEALTH.0 ~ RACE_ETHNICITY + HIGHEST_EDUCATION_OF_RAISERS + BINARIZED_GENDER + LAYOFF_PANDEMIC + STATE + EDUCATION_LEVEL + NUM_DEPENDENT_CHILDREN + AGE + EXPECT_INHERIT_10K_PLUS, data=controls)
+
+mu_hat01 <- predict(mu_hat_0, treats)
+
+mu_hat00 <- predict(mu_hat_0, controls)
+mu_hat11 <- predict(mu_hat_1, treats)
+
+bias <- mean(mu_hat01 - mu_hat00)
+
+bias_adjusted_tau <- test_stat - bias
+
+
+v_1 = 1/(n^2) * sum( (summary_2$FIN_HEALTH.1 - mu_hat11 )^2)
+v_0 = 1/(n^2) * sum( (summary_2$FIN_HEALTH.0 - mu_hat00 )^2)
+
+var_hat <- v_1 + v_0
+
+sprintf("Bias_Adjusted Tau: %f", bias_adjusted_tau)
+sprintf("Variance Estimate: %f", var_hat)
+
+ci_lower <- bias_adjusted_tau - 1.96*((var_hat)^(1/2))
+ci_upper <- bias_adjusted_tau + 1.96*((var_hat)^(1/2))
+sprintf("Confidence interval is: [%f, %f]",ci_lower, ci_upper )
+
+
+
+```
+
+
+
+
+
+
+
+
